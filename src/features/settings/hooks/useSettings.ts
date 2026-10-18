@@ -25,9 +25,12 @@ export function useSettings() {
 			sync: s.sync,
 		}))
 	)
+
+	const load = state.load
+
 	useEffect(() => {
-		void state.load()
-	}, [state])
+		void load()
+	}, [load])
 
 	const save = async (values: MailSettingsFormValues): Promise<boolean> => {
 		if (
@@ -44,13 +47,16 @@ export function useSettings() {
 			})
 			return false
 		}
+
 		try {
 			await state.save(toSettingsRequest(values))
+
 			notifications.show({
 				color: 'teal',
 				title: 'Сохранено',
 				message: 'Настройки IMAP обновлены в SQLite.',
 			})
+
 			return true
 		} catch (e) {
 			notifications.show({
@@ -58,13 +64,15 @@ export function useSettings() {
 				title: 'Не удалось сохранить',
 				message: e instanceof Error ? e.message : 'Ошибка сохранения',
 			})
+
 			return false
 		}
 	}
 
-	const sync = async () => {
+	const sync = async (): Promise<void> => {
 		try {
 			const count = await state.sync()
+
 			notifications.show({
 				color: 'teal',
 				title: 'Синхронизация завершена',
@@ -79,5 +87,9 @@ export function useSettings() {
 		}
 	}
 
-	return { ...state, save, sync }
+	return {
+		...state,
+		save,
+		sync,
+	}
 }

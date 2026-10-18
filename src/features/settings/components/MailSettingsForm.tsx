@@ -1,39 +1,51 @@
-import { useEffect, useState } from 'react'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { Controller, useForm, useWatch } from 'react-hook-form'
+import { useEffect, useRef } from 'react'
 import {
 	Alert,
 	Button,
 	Card,
 	Checkbox,
+	Divider,
 	Group,
 	NumberInput,
 	PasswordInput,
 	Select,
+	SimpleGrid,
 	Stack,
 	Text,
 	TextInput,
 	Title,
 } from '@mantine/core'
-import { IconAlertTriangle, IconFolder, IconRefresh } from '@tabler/icons-react'
-import type { MailSettings } from '../../../shared/types'
-import type { ImapFolder } from '../api/settings.api'
+import { IconAlertCircle } from '@tabler/icons-react'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { Controller, useForm, useWatch } from 'react-hook-form'
+
 import {
-	DEFAULT_MAIL_SETTINGS,
 	formFromSettings,
 	mailSettingsSchema,
 	type MailSettingsFormValues,
 } from '../model/mailSettingsForm'
+import type { MailSettings } from '../../../shared/types'
+import type { ImapFolder } from '../api/settings.api'
 
-interface Props {
+interface MailSettingsFormProps {
 	settings: MailSettings | null
 	folders: ImapFolder[]
 	saving: boolean
 	loadingFolders: boolean
 	foldersError: string | null
 	onLoadFolders: () => void
-	onSave: (input: MailSettingsFormValues) => Promise<boolean>
+	onSave: (values: MailSettingsFormValues) => Promise<boolean>
 }
+
+const hostOptions = [
+	{ value: 'imap.yandex.ru', label: 'imap.yandex.ru' },
+	{ value: 'imap.yandex.com', label: 'imap.yandex.com' },
+]
+
+const authOptions = [
+	{ value: 'oauth2', label: 'OAuth 2.0' },
+	{ value: 'app_password', label: 'Пароль приложения' },
+]
 
 export function MailSettingsForm({
 	settings,
@@ -43,19 +55,19 @@ export function MailSettingsForm({
 	foldersError,
 	onLoadFolders,
 	onSave,
-}: Props) {
-	const [confirmed, setConfirmed] = useState(false)
-	const form = useForm<MailSettingsFormValues>({
-		resolver: zodResolver(mailSettingsSchema),
-		defaultValues: DEFAULT_MAIL_SETTINGS,
-	})
+}: MailSettingsFormProps) {
 	const {
 		control,
-		register,
-		reset,
 		handleSubmit,
-		formState: { errors, isDirty },
-	} = form
+		reset,
+		getValues,
+		formState: { errors, isDirty, isSubmitting, dirtyFields },
+	} = useForm<MailSettingsFormValues>({
+		resolver: zodResolver(mailSettingsSchema),
+		defaultValues: formFromSettings(settings),
+		mode: 'onSubmit',
+		reValidateMode: 'onChange',
+	})
 
 	const authMethod = useWatch({
 		control,
@@ -67,280 +79,361 @@ export function MailSettingsForm({
 		name: 'allow_delete',
 	})
 
+	const lastSettingsRef = useRef(settings)
+
 	useEffect(() => {
-		reset(formFromSettings(settings))
+		if (lastSettingsRef.current === settings) {
+			return
+		}
+
+		lastSettingsRef.current = settings
+
+		reset(formFromSettings(settings), {
+			keepDirtyValues: true,
+		})
 	}, [settings, reset])
+
+	const submit = handleSubmit(async (values) => {
+		const saved = await onSave(values)
+
+		if (saved) {
+			reset({
+				...getValues(),
+				oauth_token: '',
+				app_password: '',
+			})
+		}
+	})
+
+	const busy = saving || isSubmitting
 
 	return (
 		<Card withBorder radius="md" p="lg">
-			<Stack gap="md">
+			<Stack gap="lg">
 				<div>
-					<Title order={4}>Подключение Яндекс Почты</Title>
+					<Title order={4}>Настройки почтового подключения</Title>
+
 					<Text size="sm" c="dimmed">
-						Настройки хранятся на сервере в SQLite. Пароль и токен не читаются
-						обратно из API.
+						Параметры IMAP сохраняются в SQLite. Учётные данные обрабатываются
+						Go backend.
 					</Text>
 				</div>
-				{settings?.configured ? (
-					<Alert variant="light" color="teal">
-						Почта настроена: {settings.username}. Оставь поле секрета пустым,
-						чтобы сохранить прежний. Если в базе уже есть письма, смена аккаунта
-						или исходной папки потребует новой базы разработки.
-					</Alert>
-				) : (
-					<Alert variant="light" color="blue">
-						Подключение ещё не настроено. Для первого сохранения потребуется
-						токен OAuth или пароль приложения.
-					</Alert>
-				)}
+
 				<form
 					onSubmit={(event) => {
-						void handleSubmit(async (values) => {
-							const ok = await onSave(values)
-							if (ok) {
-								reset({ ...values, oauth_token: '', app_password: '' })
-								setConfirmed(false)
-							}
-						})(event)
+						void submit(event)
 					}}
 				>
 					<Stack gap="md">
-						<Group grow align="start">
+						<SimpleGrid cols={{ base: 1, sm: 2 }}>
 							<Controller
 								name="host"
 								control={control}
-								render={({ field }) => (
+								render={({ field, fieldState }) => (
 									<Select
-										label="IMAP хост"
-										data={[
-											{ value: 'imap.yandex.ru', label: 'imap.yandex.ru' },
-											{ value: 'imap.yandex.com', label: 'imap.yandex.com' },
-										]}
+										label="IMAP-сервер"
+										data={hostOptions}
+										allowDeselect={false}
+										required
+										name={field.name}
 										value={field.value}
-										onChange={(v) => {
-											if (v) field.onChange(v)
+										onChange={(value) => {
+											if (value !== null) {
+												field.onChange(value)
+											}
 										}}
-										error={errors.host?.message}
+										onBlur={field.onBlur}
+										error={fieldState.error?.message}
 									/>
 								)}
 							/>
+
 							<Controller
 								name="port"
 								control={control}
-								render={({ field }) => (
+								render={({ field, fieldState }) => (
 									<NumberInput
-										label="Порт TLS"
+										label="Порт IMAP"
 										min={1}
 										max={65535}
+										required
 										value={field.value}
-										onChange={(v) => field.onChange(v)}
-										error={errors.port?.message}
+										onChange={field.onChange}
+										onBlur={field.onBlur}
+										error={fieldState.error?.message}
 									/>
 								)}
 							/>
-						</Group>
-						<TextInput
-							label="Почтовый адрес"
-							autoComplete="username"
-							placeholder="name@yandex.ru"
-							error={errors.username?.message}
-							{...register('username')}
-						/>
+						</SimpleGrid>
+
 						<Controller
-							name="auth_method"
+							name="username"
 							control={control}
-							render={({ field }) => (
-								<Select
-									label="Авторизация IMAP"
+							render={({ field, fieldState }) => (
+								<TextInput
+									label="Почтовый адрес"
+									placeholder="name@yandex.ru"
+									autoComplete="username"
+									type="email"
+									required
+									name={field.name}
+									ref={field.ref}
 									value={field.value}
-									onChange={(v) => {
-										if (v) field.onChange(v)
-									}}
-									data={[
-										{ value: 'oauth2', label: 'OAuth2' },
-										{ value: 'app_password', label: 'Пароль приложения' },
-									]}
+									onChange={field.onChange}
+									onBlur={field.onBlur}
+									error={fieldState.error?.message}
 								/>
 							)}
 						/>
+
+						<Controller
+							name="auth_method"
+							control={control}
+							render={({ field, fieldState }) => (
+								<Select
+									label="Способ авторизации"
+									data={authOptions}
+									allowDeselect={false}
+									required
+									name={field.name}
+									value={field.value}
+									onChange={(value) => {
+										if (value !== null) {
+											field.onChange(value)
+										}
+									}}
+									onBlur={field.onBlur}
+									error={fieldState.error?.message}
+								/>
+							)}
+						/>
+
 						{authMethod === 'oauth2' ? (
-							<PasswordInput
-								label="OAuth-токен"
-								autoComplete="off"
-								placeholder="Оставь пустым, чтобы не менять"
-								error={errors.oauth_token?.message}
-								{...register('oauth_token')}
+							<Controller
+								name="oauth_token"
+								control={control}
+								render={({ field, fieldState }) => (
+									<PasswordInput
+										label="OAuth-токен"
+										description={
+											settings?.configured
+												? 'Оставь пустым, чтобы сохранить текущий токен, если подключение не изменилось.'
+												: 'Укажи OAuth-токен для первого подключения.'
+										}
+										autoComplete="off"
+										name={field.name}
+										ref={field.ref}
+										value={field.value}
+										onChange={field.onChange}
+										onBlur={field.onBlur}
+										error={fieldState.error?.message}
+									/>
+								)}
 							/>
 						) : (
-							<PasswordInput
-								label="Пароль приложения"
-								autoComplete="new-password"
-								placeholder="Оставь пустым, чтобы не менять"
-								error={errors.app_password?.message}
-								{...register('app_password')}
+							<Controller
+								name="app_password"
+								control={control}
+								render={({ field, fieldState }) => (
+									<PasswordInput
+										label="Пароль приложения"
+										description={
+											settings?.configured
+												? 'Оставь пустым, чтобы сохранить текущий пароль, если подключение не изменилось.'
+												: 'Укажи пароль приложения Яндекс Почты.'
+										}
+										autoComplete="off"
+										name={field.name}
+										ref={field.ref}
+										value={field.value}
+										onChange={field.onChange}
+										onBlur={field.onBlur}
+										error={fieldState.error?.message}
+									/>
+								)}
 							/>
 						)}
-						<Group grow align="start">
-							<TextInput
-								label="Исходная папка"
-								placeholder="INBOX"
-								error={errors.folder?.message}
-								{...register('folder')}
-							/>
-							<TextInput
-								label="Корзина IMAP"
-								placeholder="Определяется сервером"
-								error={errors.trash_folder?.message}
-								{...register('trash_folder')}
-							/>
-						</Group>
-						<Group justify="space-between" align="start">
+
+						<Divider label="Папки IMAP" labelPosition="left" />
+
+						<Group justify="space-between" align="center">
+							<Text size="sm" c="dimmed">
+								Можно получить список папок с сервера.
+							</Text>
+
 							<Button
 								type="button"
-								variant="light"
-								leftSection={<IconFolder size={16} />}
-								onClick={onLoadFolders}
+								variant="default"
+								size="xs"
 								loading={loadingFolders}
-								disabled={!settings?.configured}
+								disabled={busy}
+								onClick={onLoadFolders}
 							>
-								Показать папки с сервера
+								Загрузить папки
 							</Button>
-							<Text size="xs" c="dimmed">
-								Список папок доступен после сохранения правильных учётных
-								данных.
-							</Text>
 						</Group>
-						{foldersError && <Alert color="orange">{foldersError}</Alert>}
-						{folders.length > 0 && (
-							<Group grow align="start">
-								<Controller
-									name="folder"
-									control={control}
-									render={({ field }) => (
-										<Select
-											label="Выбрать исходную папку из IMAP"
-											placeholder="Выберите папку"
-											searchable
-											clearable
-											data={folders.map((f) => ({
-												value: f.name,
-												label: f.name,
-											}))}
-											value={field.value || null}
-											onChange={(v) => field.onChange(v ?? '')}
-											error={errors.folder?.message}
-										/>
-									)}
-								/>
-								<Controller
-									name="trash_folder"
-									control={control}
-									render={({ field }) => (
-										<Select
-											label="Выбрать корзину из IMAP"
-											placeholder="Выберите папку"
-											searchable
-											clearable
-											data={folders.map((f) => ({
-												value: f.name,
-												label: f.name,
-											}))}
-											value={field.value || null}
-											onChange={(v) => field.onChange(v ?? '')}
-											error={errors.trash_folder?.message}
-										/>
-									)}
-								/>
-							</Group>
+
+						{foldersError && (
+							<Alert color="red" icon={<IconAlertCircle size={16} />}>
+								{foldersError}
+							</Alert>
 						)}
-						<Group grow align="start">
+
+						<SimpleGrid cols={{ base: 1, sm: 2 }}>
+							<Controller
+								name="folder"
+								control={control}
+								render={({ field, fieldState }) => (
+									<TextInput
+										label="Исходная папка"
+										placeholder="INBOX"
+										required
+										name={field.name}
+										ref={field.ref}
+										value={field.value}
+										onChange={field.onChange}
+										onBlur={field.onBlur}
+										error={fieldState.error?.message}
+									/>
+								)}
+							/>
+
+							<Controller
+								name="trash_folder"
+								control={control}
+								render={({ field, fieldState }) => (
+									<TextInput
+										label="Папка корзины"
+										placeholder="Trash"
+										description="Нужна для ручного удаления писем."
+										name={field.name}
+										ref={field.ref}
+										value={field.value}
+										onChange={field.onChange}
+										onBlur={field.onBlur}
+										error={fieldState.error?.message}
+									/>
+								)}
+							/>
+						</SimpleGrid>
+
+						{folders.length > 0 && (
+							<Stack gap={4}>
+								<Text size="xs" fw={500}>
+									Папки, полученные от IMAP-сервера:
+								</Text>
+
+								{folders.map((folder, index) => (
+									<Text
+										key={index}
+										size="xs"
+										c="dimmed"
+										style={{
+											overflowWrap: 'anywhere',
+										}}
+									>
+										{JSON.stringify(folder)}
+									</Text>
+								))}
+							</Stack>
+						)}
+
+						<Divider label="Параметры синхронизации" labelPosition="left" />
+
+						<SimpleGrid cols={{ base: 1, sm: 3 }}>
 							<Controller
 								name="poll_interval_seconds"
 								control={control}
-								render={({ field }) => (
+								render={({ field, fieldState }) => (
 									<NumberInput
-										label="Интервал синхронизации, сек"
+										label="Интервал, сек."
 										min={10}
 										max={86400}
+										required
 										value={field.value}
 										onChange={field.onChange}
-										error={errors.poll_interval_seconds?.message}
+										onBlur={field.onBlur}
+										error={fieldState.error?.message}
 									/>
 								)}
 							/>
+
 							<Controller
 								name="fetch_limit"
 								control={control}
-								render={({ field }) => (
+								render={({ field, fieldState }) => (
 									<NumberInput
-										label="Лимит за синхронизацию"
+										label="Лимит писем"
 										min={1}
 										max={500}
+										required
 										value={field.value}
 										onChange={field.onChange}
-										error={errors.fetch_limit?.message}
+										onBlur={field.onBlur}
+										error={fieldState.error?.message}
 									/>
 								)}
 							/>
+
 							<Controller
 								name="max_message_bytes"
 								control={control}
-								render={({ field }) => (
+								render={({ field, fieldState }) => (
 									<NumberInput
-										label="Лимит размера письма, байт"
+										label="Максимум байт"
 										min={1024}
 										max={50_000_000}
+										required
 										value={field.value}
 										onChange={field.onChange}
-										error={errors.max_message_bytes?.message}
+										onBlur={field.onBlur}
+										error={fieldState.error?.message}
 									/>
 								)}
 							/>
-						</Group>
+						</SimpleGrid>
+
+						<Divider label="Удаление писем" labelPosition="left" />
+
 						<Controller
 							name="allow_delete"
 							control={control}
 							render={({ field }) => (
 								<Checkbox
-									label="Разрешить перенос писем в Корзину через IMAP MOVE"
+									label="Разрешить ручное перемещение писем в корзину"
+									description="Автоматическое удаление писем не выполняется."
 									checked={field.value}
-									onChange={(e) => {
-										field.onChange(e.currentTarget.checked)
-										setConfirmed(false)
+									onChange={(event) => {
+										field.onChange(event.currentTarget.checked)
 									}}
 								/>
 							)}
 						/>
+
 						{allowDelete && (
-							<Alert
-								color="orange"
-								title="Разрешение на удаление"
-								icon={<IconAlertTriangle size={18} />}
-							>
-								Перемещение выполняется только по ручному запросу, с
-								подтверждением и паролем администратора. Убедись, что выбрана
-								правильная корзина и OAuth разрешает запись.
+							<Alert color="yellow">
+								Убедись, что указана правильная папка корзины. Удаление требует
+								отдельного подтверждения.
 							</Alert>
 						)}
-						{allowDelete && (
-							<Checkbox
-								checked={confirmed}
-								onChange={(e) => setConfirmed(e.currentTarget.checked)}
-								label="Я проверил(а) папку Корзины и понимаю последствия включения IMAP MOVE"
-							/>
-						)}
+
 						<Group justify="flex-end">
-							<Button
-								type="submit"
-								loading={saving}
-								disabled={saving || (allowDelete && !confirmed)}
-								leftSection={<IconRefresh size={16} />}
-							>
-								{isDirty
-									? 'Сохранить настройки'
-									: 'Сохранить / подтвердить настройки'}
+							<Button type="submit" loading={busy} disabled={busy}>
+								Сохранить настройки
 							</Button>
 						</Group>
+
+						{isDirty && Object.keys(dirtyFields).length > 0 && (
+							<Text size="xs" c="dimmed">
+								Есть несохранённые изменения.
+							</Text>
+						)}
+
+						{Object.keys(errors).length > 0 && (
+							<Text size="xs" c="red">
+								Проверь поля, отмеченные ошибками.
+							</Text>
+						)}
 					</Stack>
 				</form>
 			</Stack>

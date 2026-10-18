@@ -9,6 +9,7 @@ import {
 	Title,
 } from '@mantine/core'
 import { IconAlertCircle } from '@tabler/icons-react'
+
 import { MailSettingsForm } from '../../features/settings/components/MailSettingsForm'
 import { ChangePasswordForm } from '../../features/settings/components/ChangePasswordForm'
 import { MailSyncPanel } from '../../features/settings/components/MailSyncPanel'
@@ -18,6 +19,7 @@ import { useChangePassword } from '../../features/settings/hooks/useChangePasswo
 export function SettingsPage() {
 	const mail = useSettings()
 	const password = useChangePassword()
+
 	return (
 		<Stack gap="lg">
 			<Group justify="space-between" align="start">
@@ -27,9 +29,11 @@ export function SettingsPage() {
 						Подключение почты, синхронизация, безопасность администратора.
 					</Text>
 				</div>
+
 				<Button
 					variant="default"
 					loading={mail.loading}
+					disabled={mail.saving}
 					onClick={() => {
 						void mail.load()
 					}}
@@ -37,12 +41,14 @@ export function SettingsPage() {
 					Обновить
 				</Button>
 			</Group>
-			{mail.loading && !mail.settings && (
+
+			{mail.loading && mail.settings === null && (
 				<Group>
 					<Loader size="sm" />
 					<Text c="dimmed">Загружаем настройки…</Text>
 				</Group>
 			)}
+
 			{mail.error && (
 				<Alert
 					icon={<IconAlertCircle size={18} />}
@@ -52,7 +58,8 @@ export function SettingsPage() {
 					{mail.error}
 				</Alert>
 			)}
-			{!mail.loading && mail.settings !== null && (
+
+			{mail.settings !== null && (
 				<MailSettingsForm
 					settings={mail.settings}
 					folders={mail.folders}
@@ -65,6 +72,7 @@ export function SettingsPage() {
 					onSave={mail.save}
 				/>
 			)}
+
 			<SimpleGrid cols={{ base: 1, lg: 2 }}>
 				<MailSyncPanel
 					configured={mail.settings?.configured === true}
@@ -73,6 +81,7 @@ export function SettingsPage() {
 						void mail.sync()
 					}}
 				/>
+
 				<ChangePasswordForm busy={password.busy} onChange={password.change} />
 			</SimpleGrid>
 		</Stack>

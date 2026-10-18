@@ -5,7 +5,11 @@ export const mailSettingsSchema = z
 	.object({
 		host: z.enum(['imap.yandex.ru', 'imap.yandex.com']),
 		port: z.coerce.number().int().min(1).max(65535),
-		username: z.string().trim().min(3, 'Укажи почтовый адрес'),
+		username: z
+			.string()
+			.trim()
+			.min(1, 'Укажи почтовый адрес')
+			.email('Укажи корректный почтовый адрес'),
 		auth_method: z.enum(['oauth2', 'app_password']),
 		oauth_token: z.string(),
 		app_password: z.string(),
@@ -28,6 +32,7 @@ export const mailSettingsSchema = z
 			})
 		}
 	})
+
 export type MailSettingsFormValues = z.infer<typeof mailSettingsSchema>
 
 export const DEFAULT_MAIL_SETTINGS: MailSettingsFormValues = {
@@ -48,7 +53,10 @@ export const DEFAULT_MAIL_SETTINGS: MailSettingsFormValues = {
 export function formFromSettings(
 	settings: MailSettings | null
 ): MailSettingsFormValues {
-	if (!settings?.configured) return { ...DEFAULT_MAIL_SETTINGS }
+	if (!settings?.configured) {
+		return { ...DEFAULT_MAIL_SETTINGS }
+	}
+
 	return {
 		host:
 			settings.host === 'imap.yandex.com'
